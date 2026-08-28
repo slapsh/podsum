@@ -111,27 +111,30 @@ class OpenRouterASR:
     def _transcribe_chunk(
         self, path: Path, offset: float, duration: float, fmt: str
     ) -> Transcript:
-        size = path.stat().st_size
-        if size <= MULTIPART_MAX_BYTES:
-            data = self._post_multipart(path, fmt)
-        else:
-            data = self._post_base64(path, fmt)
-        return self._parse(data, offset, duration)
+        send = self._post_multipart if path.stat().st_size <= MULTIPART_MAX_BYTES else self._post_base64
+        try:
+            return self._parse(send(path, fmt), offset, duration)
+        except BackendError:
+            if not build_prompt(self.cfg.glossary_path):
+                raise
+            # The biasing prompt can push a Whisper-class model into emitting
+            # nothing. Retry once without it before giving up on the chunk.
+            return self._parse(send(path, fmt, with_prompt=False), offset, duration)
 
-    def _common_fields(self) -> dict[str, Any]:
+    def _common_fields(self, with_prompt: bool = True) -> dict[str, Any]:
         fields: dict[str, Any] = {
             "model": self.cfg.asr_model,
             "language": self.cfg.language,
             "response_format": "verbose_json",
             "temperature": 0,
         }
-        if prompt := build_prompt(self.cfg.glossary_path):
+        if with_prompt and (prompt := build_prompt(self.cfg.glossary_path)):
             # Provider passthrough: Groq-backed Whisper accepts a biasing prompt.
             fields["provider"] = {"prompt": prompt}
         return fields
 
-    def _post_multipart(self, path: Path, fmt: str) -> dict[str, Any]:
-        fields = self._common_fields()
+    def _post_multipart(self, path: Path, fmt: str, with_prompt: bool = True) -> dict[str, Any]:
+        fields = self._common_fields(with_prompt)
         data = {k: v for k, v in fields.items() if not isinstance(v, dict)}
         data["timestamp_granularities[]"] = "segment"
         response = request_with_retry(
@@ -144,8 +147,8 @@ class OpenRouterASR:
         )
         return json_body(response, "OpenRouter transcription")
 
-    def _post_base64(self, path: Path, fmt: str) -> dict[str, Any]:
-        payload = self._common_fields()
+    def _post_base64(self, path: Path, fmt: str, with_prompt: bool = True) -> dict[str, Any]:
+        payload = self._common_fields(with_prompt)
         payload["input_audio"] = {
             "data": base64.b64encode(path.read_bytes()).decode("ascii"),
             "format": fmt,

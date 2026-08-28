@@ -65,11 +65,14 @@ class FasterWhisperASR:
         )
         return self._model
 
-    def transcribe(
-        self, audio_path: Path, on_progress: ProgressCB | None = None
-    ) -> Transcript:
-        model = self._load()
-        total = probe(audio_path).duration
+    def _decode(
+        self,
+        model,
+        audio_path: Path,
+        prompt: str | None,
+        total: float,
+        on_progress: ProgressCB | None,
+    ) -> tuple[list[Segment], object]:
         segments_iter, info = model.transcribe(
             str(audio_path),
             language=self.cfg.language,
@@ -77,7 +80,7 @@ class FasterWhisperASR:
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
             condition_on_previous_text=False,
-            initial_prompt=build_prompt(self.cfg.glossary_path) or None,
+            initial_prompt=prompt,
             word_timestamps=False,
         )
         segments: list[Segment] = []
@@ -87,6 +90,22 @@ class FasterWhisperASR:
                 segments.append(Segment(start=seg.start, end=seg.end, text=text))
             if on_progress:
                 on_progress(min(seg.end, total or seg.end), total or seg.end)
+        return segments, info
+
+    def transcribe(
+        self, audio_path: Path, on_progress: ProgressCB | None = None
+    ) -> Transcript:
+        model = self._load()
+        total = probe(audio_path).duration
+        prompt = build_prompt(self.cfg.glossary_path) or None
+        segments, info = self._decode(model, audio_path, prompt, total, on_progress)
+        used_glossary = bool(prompt)
+        if not segments and prompt:
+            # A long biasing prompt can derail smaller Whisper checkpoints into
+            # emitting nothing at all. A transcript with phonetic product names
+            # beats an empty one, so drop the hint and decode again.
+            segments, info = self._decode(model, audio_path, None, total, on_progress)
+            used_glossary = False
         if on_progress and total:
             on_progress(total, total)
         return Transcript(
@@ -96,5 +115,9 @@ class FasterWhisperASR:
             backend=self.name,
             model=self.cfg.asr_model,
             source=str(audio_path),
-            usage={"device": self.device, "compute_type": self.compute_type},
+            usage={
+                "device": self.device,
+                "compute_type": self.compute_type,
+                "glossary_prompt": used_glossary,
+            },
         )

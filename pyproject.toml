@@ -33,7 +33,8 @@ packages = ["podsum"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# Real-inference tests download model weights, so they are opt-in: `pytest -m slow`.
+addopts = "-q -m 'not slow'"
 markers = [
-    "slow: downloads model weights and runs real inference; deselect with '-m \"not slow\"'",
+    "slow: downloads model weights and runs real inference; select with '-m slow'",
 ]
