@@ -1,0 +1,64 @@
+# Terms fed to the recognizer as a decoding hint so English product names keep
+# their Latin spelling instead of being transliterated phonetically.
+# One term per line; `#` comments and blank lines are ignored.
+# Whisper only reads ~224 tokens of prompt, so keep the list tight and put the
+# terms your show actually says at the top.
+
+Kubernetes
+Docker
+Kafka
+PostgreSQL
+ClickHouse
+Redis
+Elasticsearch
+Prometheus
+Grafana
+Terraform
+Ansible
+Nginx
+gRPC
+GraphQL
+REST API
+CI/CD
+DevOps
+SRE
+Golang
+Python
+TypeScript
+JavaScript
+React
+Node.js
+Rust
+Kotlin
+Swift
+observability
+service mesh
+feature flag
+code review
+pull request
+legacy
+highload
+latency
+throughput
+микросервисы
+монолит
+деплой
+продакшен
+стейджинг
+бэкенд
+фронтенд
+тимлид
+рефакторинг
+техдолг
+нагрузочное тестирование
+отказоустойчивость
+масштабирование
+очередь сообщений
+кеш
+шардирование
+репликация
+онбординг
+код-ревью
+релиз
+инцидент
+постмортем
