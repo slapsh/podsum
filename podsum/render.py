@@ -169,7 +169,7 @@ def render_markdown(
             attribution = " — ".join(x for x in (speaker, f"`{stamp}`" if stamp else "") if x)
             lines.append(f"> {quote['text']}")
             if attribution:
-                lines.append(f">")
+                lines.append(">")
                 lines.append(f"> — {attribution}")
             lines.append("")
 

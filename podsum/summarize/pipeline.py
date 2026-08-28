@@ -238,6 +238,11 @@ def _reduce(
     """
     usage: list[dict[str, Any]] = []
     batches = batch_by_tokens(notes, budget)
+    if len(batches) == len(notes) > 1:
+        # Every note is individually over budget, so batching made no progress.
+        # Pair them up regardless: the real context limit is larger than our
+        # deliberately conservative budget, and halving each round terminates.
+        batches = [notes[i : i + 2] for i in range(0, len(notes), 2)]
     if on_progress:
         on_progress("Сборка сводки", 0, len(batches))
     partials: list[str] = []

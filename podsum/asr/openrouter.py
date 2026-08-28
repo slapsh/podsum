@@ -24,6 +24,10 @@ MULTIPART_MAX_BYTES = 20 * 1024 * 1024
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
 
 
+class EmptyTranscription(BackendError):
+    """The provider answered successfully but returned no words."""
+
+
 def synthesize_segments(text: str, start: float, duration: float) -> list[Segment]:
     """Spread a plain-text result over the chunk's span, proportional to length.
 
@@ -114,29 +118,28 @@ class OpenRouterASR:
         send = self._post_multipart if path.stat().st_size <= MULTIPART_MAX_BYTES else self._post_base64
         try:
             return self._parse(send(path, fmt), offset, duration)
-        except BackendError:
+        except EmptyTranscription:
             if not build_prompt(self.cfg.glossary_path):
                 raise
             # The biasing prompt can push a Whisper-class model into emitting
             # nothing. Retry once without it before giving up on the chunk.
             return self._parse(send(path, fmt, with_prompt=False), offset, duration)
 
-    def _common_fields(self, with_prompt: bool = True) -> dict[str, Any]:
-        fields: dict[str, Any] = {
+    def _common_fields(self) -> dict[str, Any]:
+        return {
             "model": self.cfg.asr_model,
             "language": self.cfg.language,
             "response_format": "verbose_json",
             "temperature": 0,
         }
-        if with_prompt and (prompt := build_prompt(self.cfg.glossary_path)):
-            # Provider passthrough: Groq-backed Whisper accepts a biasing prompt.
-            fields["provider"] = {"prompt": prompt}
-        return fields
 
     def _post_multipart(self, path: Path, fmt: str, with_prompt: bool = True) -> dict[str, Any]:
-        fields = self._common_fields(with_prompt)
-        data = {k: v for k, v in fields.items() if not isinstance(v, dict)}
+        data = self._common_fields()
         data["timestamp_granularities[]"] = "segment"
+        if with_prompt and (prompt := build_prompt(self.cfg.glossary_path)):
+            # `prompt` is the OpenAI-compatible form field for biasing Whisper;
+            # providers that do not support it ignore it.
+            data["prompt"] = prompt
         response = request_with_retry(
             self._get_client(),
             "POST",
@@ -148,20 +151,26 @@ class OpenRouterASR:
         return json_body(response, "OpenRouter transcription")
 
     def _post_base64(self, path: Path, fmt: str, with_prompt: bool = True) -> dict[str, Any]:
-        payload = self._common_fields(with_prompt)
+        payload = self._common_fields()
         payload["input_audio"] = {
             "data": base64.b64encode(path.read_bytes()).decode("ascii"),
             "format": fmt,
         }
         payload["timestamp_granularities"] = ["segment"]
-        response = request_with_retry(
-            self._get_client(),
-            "POST",
-            "/audio/transcriptions",
-            what="OpenRouter transcription",
-            json=payload,
+        if with_prompt and (prompt := build_prompt(self.cfg.glossary_path)):
+            # The JSON body has no top-level prompt field; biasing goes through
+            # the provider passthrough block.
+            payload["provider"] = {"prompt": prompt}
+        return json_body(
+            request_with_retry(
+                self._get_client(),
+                "POST",
+                "/audio/transcriptions",
+                what="OpenRouter transcription",
+                json=payload,
+            ),
+            "OpenRouter transcription",
         )
-        return json_body(response, "OpenRouter transcription")
 
     def _parse(self, data: dict[str, Any], offset: float, duration: float) -> Transcript:
         raw_segments = data.get("segments") or []
@@ -180,7 +189,7 @@ class OpenRouterASR:
         if not segments:
             text = (data.get("text") or "").strip()
             if not text:
-                raise BackendError(
+                raise EmptyTranscription(
                     "OpenRouter returned an empty transcription.",
                     hint="The chunk may be silent, or the model may not support this language.",
                 )

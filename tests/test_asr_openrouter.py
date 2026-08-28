@@ -85,6 +85,26 @@ class TestRequests:
         assert b'name="language"' in seen["body"]
         assert b"ru" in seen["body"]
         assert b"verbose_json" in seen["body"]
+        assert b"Kubernetes" in seen["body"]  # the glossary reaches the provider
+
+    def test_base64_requests_pass_the_glossary_through_the_provider_block(
+        self, cloud_config, tmp_path, monkeypatch
+    ):
+        import podsum.asr.openrouter as module
+
+        monkeypatch.setattr(module, "MULTIPART_MAX_BYTES", 1)
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["payload"] = json.loads(request.content)
+            return httpx.Response(200, json=VERBOSE_JSON)
+
+        audio = tmp_path / "chunk.opus"
+        audio.write_bytes(b"some audio")
+        backend = OpenRouterASR(cloud_config, client=mock_client(handler))
+        backend._transcribe_chunk(audio, offset=0.0, duration=30.0, fmt="opus")
+
+        assert "Kubernetes" in captured["payload"]["provider"]["prompt"]
 
     def test_large_chunks_switch_to_base64_json(self, cloud_config, tmp_path, monkeypatch):
         import podsum.asr.openrouter as module
@@ -122,6 +142,39 @@ class TestRequests:
 
         assert attempts["n"] == 3
         assert transcript.segments
+
+    def test_an_empty_result_is_retried_without_the_glossary(self, cloud_config, tmp_path):
+        sent = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(request.content)
+            if len(sent) == 1:
+                return httpx.Response(200, json={"text": ""})
+            return httpx.Response(200, json=VERBOSE_JSON)
+
+        audio = tmp_path / "chunk.opus"
+        audio.write_bytes(b"bytes")
+        backend = OpenRouterASR(cloud_config, client=mock_client(handler))
+        transcript = backend._transcribe_chunk(audio, 0.0, 30.0, "opus")
+
+        assert len(sent) == 2
+        assert b"Kubernetes" in sent[0]  # first attempt carried the biasing prompt
+        assert b"Kubernetes" not in sent[1]
+        assert transcript.segments
+
+    def test_a_transport_error_is_not_retried_as_if_it_were_empty(self, cloud_config, tmp_path):
+        attempts = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts["n"] += 1
+            return httpx.Response(401, json={"error": "bad key"})
+
+        audio = tmp_path / "chunk.opus"
+        audio.write_bytes(b"bytes")
+        backend = OpenRouterASR(cloud_config, client=mock_client(handler))
+        with pytest.raises(BackendError):
+            backend._transcribe_chunk(audio, 0.0, 30.0, "opus")
+        assert attempts["n"] == 1
 
     def test_authentication_failure_explains_itself(self, cloud_config, tmp_path):
         audio = tmp_path / "chunk.opus"

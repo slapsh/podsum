@@ -132,11 +132,18 @@ def _summarize(cfg: Config, transcript: Transcript):
     return result
 
 
+_OUTPUT_LABELS = {
+    "transcript_json": "расшифровка (JSON)",
+    "transcript_txt": "расшифровка (текст)",
+    "summary": "сводка",
+}
+
+
 def _report(paths: dict[str, Path], result=None) -> None:
     console.print()
     console.print("[bold green]Готово.[/]")
     for label, path in paths.items():
-        console.print(f"  [dim]{label}:[/] {path}")
+        console.print(f"  [dim]{_OUTPUT_LABELS.get(label, label)}:[/] {path}")
     if result is not None:
         tokens = result.tokens
         details = [f"стратегия: {result.strategy}", f"фрагментов: {result.windows}"]
@@ -207,14 +214,12 @@ def transcribe(
 ) -> None:
     """Transcribe only; write the transcript JSON and timed text."""
     try:
+        # No summarization here, so the LLM backend is pinned to the offline
+        # stub and never asks for credentials.
         cfg = _build_config(
-            profile, asr, None, "stub", None, None, None, None,
+            profile, asr, asr_model, "stub", None, None, None, None,
             chunk_seconds, glossary, device,
         )
-        if asr_model:
-            cfg.asr_model = asr_model
-        if cfg.asr_backend == "openrouter" and not cfg.openrouter_api_key:
-            cfg.llm_backend = "stub"
         cfg.validate()
         transcript = _transcribe(cfg, audio)
         paths = write_outputs(out, audio.stem, transcript)

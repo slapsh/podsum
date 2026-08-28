@@ -62,7 +62,7 @@ def ensure_ffmpeg() -> None:
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-4:]
         raise PodsumError(
@@ -154,6 +154,8 @@ def detect_silences(
 ) -> list[tuple[float, float]]:
     """Return (start, end) pairs for every silent stretch ffmpeg can find."""
     ensure_ffmpeg()
+    # Not check=True: a failure here only costs us silence-aligned boundaries,
+    # and falling back to fixed-length cuts beats aborting the episode.
     proc = subprocess.run(
         [
             "ffmpeg",
@@ -169,6 +171,7 @@ def detect_silences(
         ],
         capture_output=True,
         text=True,
+        check=False,
     )
     silences: list[tuple[float, float]] = []
     pending: float | None = None

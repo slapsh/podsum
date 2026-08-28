@@ -156,6 +156,16 @@ class TestStrategySelection:
         assert len(reduce_prompts) > 1  # batched, then combined
         assert result.data["title"] == FULL_SUMMARY["title"]
 
+    def test_reduce_terminates_when_every_note_exceeds_the_budget(self, cloud_config):
+        """Batching cannot shrink notes that are individually too large."""
+        from podsum.summarize.pipeline import _reduce
+
+        notes = [json.dumps({"topics": [{"title": "т" * 4000}]}, ensure_ascii=False) for _ in range(4)]
+        client = ScriptedChat([FULL_SUMMARY], limit=2_000)
+        data, usage = _reduce(notes, client, "system", budget=100)
+        assert data["title"] == FULL_SUMMARY["title"]
+        assert len(usage) < 10  # folded in pairs rather than spinning forever
+
     def test_cost_and_tokens_are_accumulated(self, long_transcript, cloud_config):
         client = ScriptedChat([FULL_SUMMARY], limit=4_000)
         result = summarize(long_transcript, client, cloud_config)

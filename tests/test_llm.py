@@ -71,7 +71,7 @@ class TestOpenRouterChat:
         assert json.loads(result.text) == {"tldr": ["ок"]}
 
     def test_empty_content_names_the_likely_cause(self, cloud_config):
-        handler = lambda r: httpx.Response(  # noqa: E731
+        handler = lambda r: httpx.Response(
             200,
             json={"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
         )
@@ -129,7 +129,7 @@ class TestOllamaChat:
         assert client.context_limit() == 65536
 
     def test_thinking_models_do_not_leak_their_reasoning(self, local_config):
-        handler = lambda r: httpx.Response(  # noqa: E731
+        handler = lambda r: httpx.Response(
             200,
             json={"message": {"content": "<think>ммм</think>Итог: всё хорошо."}},
         )
@@ -147,7 +147,7 @@ class TestOllamaChat:
         assert "ollama serve" in hint and "ollama pull" in hint
 
     def test_availability_check_reports_a_missing_model(self, local_config):
-        handler = lambda r: httpx.Response(200, json={"models": [{"name": "gemma4:12b"}]})  # noqa: E731
+        handler = lambda r: httpx.Response(200, json={"models": [{"name": "gemma4:12b"}]})
         client = OllamaChat(local_config, client=mock_client(handler, "http://127.0.0.1:11434"))
         available, message = client.is_available()
         assert available is False

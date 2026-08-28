@@ -11,8 +11,10 @@ agent-tools/
 # Pipeline artifacts
 out/
 *.transcript.json
+*.transcript.txt
 *.summary.md
 *.wav
 *.mp3
 *.opus
 !tests/fixtures/*.json
+!examples/*
