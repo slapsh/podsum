@@ -20,13 +20,17 @@ STRATEGIES = ("auto", "single", "mapreduce")
 PROFILES: dict[str, dict[str, str]] = {
     "cloud": {
         "asr_backend": "openrouter",
-        "asr_model": "qwen/qwen3-asr-flash-2026-02-10",
+        # Whisper large-v3 is the Russian option with published WER numbers and
+        # documented prompt biasing; `podsum models --asr` lists the rest.
+        "asr_model": "openai/whisper-large-v3",
         "llm_backend": "openrouter",
         "llm_model": "google/gemini-3.7-flash",
     },
     "local": {
         "asr_backend": "local",
-        "asr_model": "large-v3-turbo",
+        # Quality first: turbo is roughly twice as fast but measurably worse on
+        # Russian, so speed is an explicit choice rather than the default.
+        "asr_model": "large-v3",
         "llm_backend": "ollama",
         "llm_model": "qwen3.8:27b",
     },

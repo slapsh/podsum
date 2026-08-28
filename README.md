@@ -74,14 +74,14 @@ Internally the audio is converted once to 16 kHz mono, which is what every speec
 
 | Slug | Why you would pick it |
 | --- | --- |
-| `qwen/qwen3-asr-flash-2026-02-10` | Default. Cheapest credible multilingual option, strong on Russian. |
-| `openai/whisper-large-v3-turbo` | The proven Russian baseline, still cheap. |
-| `openai/whisper-large-v3` | Slower and pricier than turbo, slightly better on noisy audio. |
+| `openai/whisper-large-v3` | Default. The Russian baseline with published numbers — roughly 6-9% WER on conversational Russian — and it honours the biasing prompt. |
+| `openai/whisper-large-v3-turbo` | Faster and cheaper distillation. Noticeably weaker on Russian than large-v3 (13.25% versus single digits on published aggregates), so trade deliberately. |
+| `qwen/qwen3-asr-flash-2026-02-10` | Recent multilingual ASR, token-priced and inexpensive. Worth benchmarking against Whisper on your own audio. |
 | `openai/gpt-4o-transcribe` | Best at English product names inside Russian speech — the exact failure mode of IT podcasts. Costs more. |
 | `deepgram/nova-3` | Fast, good punctuation, Russian supported. |
-| `google/chirp-3`, `mistralai/voxtral-small-24b-2507-stt` | Worth benchmarking on your own audio. |
+| `google/chirp-3`, `mistralai/voxtral-small-24b-2507-stt` | Further alternatives to benchmark. |
 
-Run `podsum models --asr` for the live list; the catalog moves.
+Run `podsum models --asr` for the live list; the catalog moves. Be careful comparing the prices it prints: Whisper-class models are billed per second of audio while newer speech-to-text models are billed per token, so the per-unit numbers are not comparable across rows.
 
 ### Cloud summarization (OpenRouter `/chat/completions`)
 
@@ -98,8 +98,9 @@ Ollama does not do speech recognition, so this is a separate runtime.
 
 | Model | Notes |
 | --- | --- |
-| `large-v3-turbo` (default) | `faster-whisper` on GPU with `int8_float16`. Around 6-9% WER on conversational Russian. |
-| `coriollon/whisper-large-v3-turbo-russian` | Russian fine-tune with CTranslate2 weights; roughly 9.6% aggregate WER across six Russian test sets versus 13.25% for vanilla turbo. |
+| `large-v3` (default) | `faster-whisper` on GPU with `int8_float16`. Around 6-9% WER on conversational Russian. |
+| `large-v3-turbo` | Roughly twice as fast, measurably worse on Russian. Pick it when throughput matters more than accuracy. |
+| `coriollon/whisper-large-v3-turbo-russian` | Russian fine-tune with CTranslate2 weights; roughly 9.6% aggregate WER across six Russian test sets versus 13.25% for vanilla turbo. Turbo speed, closer to large-v3 quality. |
 | `bond005/podlodka-turbo` | Fine-tuned on Podlodka, a Russian IT podcast — the closest domain match you can get. |
 | GigaAM v3 RNN-T (`--asr gigaam`) | For CPU-only machines. About 10x faster than Whisper on CPU at comparable Russian accuracy, ~225 MB. Whisper turbo on CPU does **not** keep up with real time. |
 
@@ -160,7 +161,7 @@ A one-hour Russian podcast is roughly 9,000-11,000 words, about 25-30k tokens.
 
 - Cloud transcription: cents per episode at Whisper-turbo or Qwen ASR rates.
 - Cloud summarization with `google/gemini-3.7-flash`: well under a cent per episode in one pass.
-- Local on a modern GPU: a few minutes for transcription with `large-v3-turbo`, plus summarization time that depends entirely on the model size.
+- Local on a modern GPU: several minutes for transcription with `large-v3` (about half that with `large-v3-turbo`), plus summarization time that depends entirely on the model size.
 - Local on CPU: use `--asr gigaam` for transcription — Whisper on CPU is slower than listening to the episode. Summarization on CPU is the real bottleneck: on four cores, `qwen3:1.7b` took about two minutes to summarize a 150-word transcript in one pass, and four minutes for a two-window map-reduce. Summarizing a full episode without a GPU is an overnight job, not an interactive one.
 
 ## Development
