@@ -122,6 +122,8 @@ podsum run episode.mp3 --profile local --num-ctx 65536
 
 **Set `--num-ctx` deliberately.** Ollama defaults to a few thousand tokens and silently truncates anything longer, which would summarize the first ten minutes of an episode and quietly drop the rest. `podsum` always sends an explicit `num_ctx` (32k by default); raise it if your hardware allows, or the pipeline will fall back to map-reduce over more windows than necessary.
 
+The answer allowance scales with the window (a quarter of it, capped by `max_output_tokens`), because asking for an 8k answer inside a 4k window just gets the JSON cut off mid-sentence. If a model does run out of tokens anyway, the truncated object is repaired and what it produced is kept rather than discarding the whole run.
+
 ## How it works
 
 ```
@@ -159,7 +161,7 @@ A one-hour Russian podcast is roughly 9,000-11,000 words, about 25-30k tokens.
 - Cloud transcription: cents per episode at Whisper-turbo or Qwen ASR rates.
 - Cloud summarization with `google/gemini-3.7-flash`: well under a cent per episode in one pass.
 - Local on a modern GPU: a few minutes for transcription with `large-v3-turbo`, plus summarization time that depends entirely on the model size.
-- Local on CPU: use `--asr gigaam`. Whisper on CPU is slower than listening to the episode.
+- Local on CPU: use `--asr gigaam` for transcription — Whisper on CPU is slower than listening to the episode. Summarization on CPU is the real bottleneck: on four cores, `qwen3:1.7b` took about two minutes to summarize a 150-word transcript in one pass, and four minutes for a two-window map-reduce. Summarizing a full episode without a GPU is an overnight job, not an interactive one.
 
 ## Development
 
@@ -169,9 +171,13 @@ pytest                    # unit tests, no network, no models
 pytest -m slow            # additionally downloads Whisper tiny and runs real inference
 ```
 
-The test suite drives the pipeline through a stub ASR backend and mocked HTTP transports with recorded OpenRouter and Ollama payloads. The `slow` test runs a real end-to-end pass over a short synthesized Russian clip.
+Plain `pytest` is fully offline: it drives the pipeline through a stub ASR backend and mocked HTTP transports. `pytest -m slow` additionally downloads Whisper `tiny` and transcribes a short clip of synthesized Russian speech (`espeak-ng` required).
 
-**Verification status:** the local Whisper path, chunking, rendering, and both HTTP clients are covered by tests. The OpenRouter and Ollama backends have not been exercised against the live services from this repository — they are tested against recorded response shapes taken from the providers' documented formats. Run `podsum doctor` and a single short episode before trusting either path with a batch.
+**Verification status**, so you know what to re-check yourself:
+
+- Verified by the offline suite: chunk planning, transcript merging and timestamp offsets, both HTTP clients against recorded response shapes, strategy selection, JSON repair, rendering, and the CLI.
+- Verified against real inference: local `faster-whisper` transcription of Russian audio, and on-premise summarization against a live Ollama (`qwen3:1.7b`) in both single-pass and map-reduce modes.
+- **Not** verified live: the OpenRouter transcription and chat endpoints. No API key was available where this was built, so those paths are exercised only against recorded shapes taken from the documented request and response formats. Run `podsum doctor` and one short episode before pointing the cloud path at a batch.
 
 ## License
 

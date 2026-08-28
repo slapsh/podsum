@@ -48,6 +48,39 @@ class TestJsonExtraction:
             parse_json_object("совсем не json")
         assert "не json" in (excinfo.value.hint or "")
 
+    def test_output_cut_off_mid_string_is_salvaged(self):
+        """A real qwen3 response that hit its token limit part-way through."""
+        truncated = (
+            '{\n  "title": "Переход от монолита к микросервисам",\n'
+            '  "tldr": [\n    "Границы доменов важнее инфраструктуры",\n'
+            '    "Kafka развязала рел'
+        )
+        data = parse_json_object(truncated)
+        assert data["title"] == "Переход от монолита к микросервисам"
+        assert data["tldr"] == ["Границы доменов важнее инфраструктуры"]
+
+    def test_output_cut_off_after_a_key_is_salvaged(self):
+        data = parse_json_object('{"title": "Выпуск", "topics": [{"title": "Тема"}], "tech":')
+        assert data["title"] == "Выпуск"
+        assert data["topics"] == [{"title": "Тема"}]
+        assert "tech" not in data
+
+    def test_output_cut_off_inside_a_nested_list_is_salvaged(self):
+        data = parse_json_object(
+            '{"topics": [{"title": "Тема", "points": ["раз", "два"], "detail": "нача'
+        )
+        assert data["topics"][0]["points"] == ["раз", "два"]
+
+    def test_repair_is_not_applied_to_complete_json(self):
+        from podsum.llm.base import close_truncated_json
+
+        assert close_truncated_json('{"a": 1}') is None
+
+    def test_truncation_hint_points_at_the_context_window(self):
+        with pytest.raises(BackendError) as excinfo:
+            parse_json_object("{{{{")
+        assert "num-ctx" in (excinfo.value.hint or "")
+
 
 class TestOpenRouterChat:
     def test_sends_messages_and_returns_usage(self, cloud_config):

@@ -48,9 +48,22 @@ class SummaryResult:
         return {"prompt": prompt, "completion": completion}
 
 
+def _output_budget(client: ChatClient, cfg: Config) -> int:
+    """Never reserve more output than the window can hold.
+
+    A 32k Ollama context cannot honour an 8k answer plus a transcript, and the
+    truncation is silent, so the cap scales with the real limit.
+    """
+    return max(1_000, min(cfg.max_output_tokens, client.context_limit() // 4))
+
+
 def _input_budget(client: ChatClient, cfg: Config) -> int:
     limit = client.context_limit()
-    usable = int(limit * cfg.context_fill_ratio) - cfg.max_output_tokens - PROMPT_OVERHEAD_TOKENS
+    usable = (
+        int(limit * cfg.context_fill_ratio)
+        - _output_budget(client, cfg)
+        - PROMPT_OVERHEAD_TOKENS
+    )
     return max(1_000, usable)
 
 
@@ -171,6 +184,7 @@ def summarize(
     """Produce the structured summary, choosing single-pass when it fits."""
     system = prompts.system_prompt(cfg.output_lang)
     budget = _input_budget(client, cfg)
+    max_tokens = _output_budget(client, cfg)
     timed = transcript.timed_text()
     fits = estimate_tokens(timed) <= budget
 
@@ -183,7 +197,7 @@ def summarize(
         if on_progress:
             on_progress("Сводка одним проходом", 0, 1)
         result = client.complete(
-            system, prompts.single_pass_prompt(timed), json_mode=True
+            system, prompts.single_pass_prompt(timed), json_mode=True, max_tokens=max_tokens
         )
         usage.append(result.usage)
         data = normalize_summary(parse_json_object(result.text, "Summarizer"))
@@ -204,7 +218,10 @@ def summarize(
         if on_progress:
             on_progress("Разбор фрагментов", index - 1, len(windows))
         result = client.complete(
-            system, prompts.map_prompt(window, index, len(windows)), json_mode=True
+            system,
+            prompts.map_prompt(window, index, len(windows)),
+            json_mode=True,
+            max_tokens=max_tokens,
         )
         usage.append(result.usage)
         parsed = parse_json_object(result.text, f"Summarizer (фрагмент {index})")
@@ -212,7 +229,7 @@ def summarize(
     if on_progress:
         on_progress("Разбор фрагментов", len(windows), len(windows))
 
-    data, reduce_usage = _reduce(notes, client, system, budget, on_progress)
+    data, reduce_usage = _reduce(notes, client, system, budget, max_tokens, on_progress)
     usage.extend(reduce_usage)
     return SummaryResult(
         data=data,
@@ -229,6 +246,7 @@ def _reduce(
     client: ChatClient,
     system: str,
     budget: int,
+    max_tokens: int,
     on_progress: ProgressCB | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Fold per-window notes into one summary, in stages if they do not fit.
@@ -247,7 +265,12 @@ def _reduce(
         on_progress("Сборка сводки", 0, len(batches))
     partials: list[str] = []
     for index, batch in enumerate(batches, start=1):
-        result = client.complete(system, prompts.reduce_prompt("\n".join(batch)), json_mode=True)
+        result = client.complete(
+            system,
+            prompts.reduce_prompt("\n".join(batch)),
+            json_mode=True,
+            max_tokens=max_tokens,
+        )
         usage.append(result.usage)
         partials.append(
             json.dumps(parse_json_object(result.text, "Summarizer (сборка)"), ensure_ascii=False)
@@ -256,6 +279,6 @@ def _reduce(
             on_progress("Сборка сводки", index, len(batches))
     if len(partials) == 1:
         return normalize_summary(json.loads(partials[0])), usage
-    data, extra = _reduce(partials, client, system, budget, on_progress)
+    data, extra = _reduce(partials, client, system, budget, max_tokens, on_progress)
     usage.extend(extra)
     return data, usage

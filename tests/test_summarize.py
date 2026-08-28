@@ -162,7 +162,7 @@ class TestStrategySelection:
 
         notes = [json.dumps({"topics": [{"title": "т" * 4000}]}, ensure_ascii=False) for _ in range(4)]
         client = ScriptedChat([FULL_SUMMARY], limit=2_000)
-        data, usage = _reduce(notes, client, "system", budget=100)
+        data, usage = _reduce(notes, client, "system", budget=100, max_tokens=1_000)
         assert data["title"] == FULL_SUMMARY["title"]
         assert len(usage) < 10  # folded in pairs rather than spinning forever
 
@@ -171,6 +171,21 @@ class TestStrategySelection:
         result = summarize(long_transcript, client, cloud_config)
         assert result.cost == pytest.approx(0.001 * len(client.prompts))
         assert result.tokens["prompt"] == 100 * len(client.prompts)
+
+    def test_requested_output_never_exceeds_a_small_context_window(
+        self, transcript, cloud_config
+    ):
+        """An 8k answer does not fit a 4k local window; the ask has to shrink."""
+        captured: list[int | None] = []
+
+        class RecordingChat(ScriptedChat):
+            def complete(self, system, user, *, json_mode=False, max_tokens=None):
+                captured.append(max_tokens)
+                return super().complete(system, user, json_mode=json_mode)
+
+        cloud_config.max_output_tokens = 8_000
+        summarize(transcript, RecordingChat([FULL_SUMMARY], limit=4_096), cloud_config)
+        assert captured and all(t <= 4_096 // 4 for t in captured if t)
 
     def test_progress_is_reported_for_every_window(self, long_transcript, cloud_config):
         client = ScriptedChat([FULL_SUMMARY], limit=4_000)
